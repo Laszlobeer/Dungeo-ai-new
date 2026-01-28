@@ -1,5 +1,5 @@
 # Dungeo-ai
-                          ![prewe](v.png)
+  ![prewe](v.png)
 An interactive text-based adventure game powered by local LLMs through Ollama. Immerse yourself in dynamically generated stories across multiple genres and time periods, with a focus on action-driven, immediate consequences.
 
 ![Adventure Game](https://img.shields.io/badge/Game-Adventure-blue)
