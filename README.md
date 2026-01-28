@@ -9,7 +9,7 @@ An interactive text-based adventure game powered by local LLMs through Ollama. I
 ![Privacy](https://img.shields.io/badge/Privacy-Friendly-brightgreen)
 ## ✨ Features
 
-- **Multiple Genres**: Choose from 10 different settings including:
+- **Multiple Genres**: Choose from 10 different settings:
      - Fantasy,
      - Sci-Fi,
      - Cyberpunk,
