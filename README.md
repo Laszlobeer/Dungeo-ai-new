@@ -10,15 +10,15 @@ An interactive text-based adventure game powered by local LLMs through Ollama. I
 ## ✨ Features
 
 - **Multiple Genres**: Choose from 10 different settings:
-     - Fantasy,
-     - Sci-Fi,
-     - Cyberpunk,
-     - WW1,
-     - WW2,
-     - Roman Empire,
-     - 1880,
-     - 1925 New York,
-     - French Revolution,
+     - Fantasy
+     - Sci-Fi
+     - Cyberpunk
+     - WW1
+     - WW2
+     - Roman Empire
+     - 1880
+     - 1925 New York
+     - French Revolution
      - Roman Empire
 
 - **Rich Character Selection**: Over 100 unique roles
