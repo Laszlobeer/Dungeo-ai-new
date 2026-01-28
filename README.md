@@ -5,7 +5,7 @@ An interactive text-based adventure game powered by local LLMs through Ollama. I
 ![Adventure Game](https://img.shields.io/badge/Game-Adventure-blue)
 ![Python](https://img.shields.io/badge/Python-3.8+-green)
 ![Ollama](https://img.shields.io/badge/Powered%20by-Ollama-orange)
-![MIT-License]https://img.shields.io/badge/License-MIT-yellow
+![MIT-License](https://img.shields.io/badge/License-MIT-yellow)
 ## ✨ Features
 
 - **Multiple Genres**: Choose from 10 different settings including Fantasy, Sci-Fi, Cyberpunk, WW2, Roman Empire, and more
