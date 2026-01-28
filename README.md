@@ -6,13 +6,25 @@ An interactive text-based adventure game powered by local LLMs through Ollama. I
 ![Python](https://img.shields.io/badge/Python-3.8+-green)
 ![Ollama](https://img.shields.io/badge/Powered%20by-Ollama-orange)
 ![MIT-License](https://img.shields.io/badge/License-MIT-yellow)
+![Privacy](https://img.shields.io/badge/Privacy-Friendly-brightgreen)
 ## ✨ Features
 
-- **Multiple Genres**: Choose from 10 different settings including Fantasy, Sci-Fi, Cyberpunk, WW2, Roman Empire, and more
-- **Rich Character Selection**: Over 100 unique roles across all genres
+- **Multiple Genres**: Choose from 10 different settings including:
+     - Fantasy,
+     - Sci-Fi,
+     - Cyberpunk,
+     - WW1,
+     - WW2,
+     - Roman Empire,
+     - 1880,
+     - 1925 New York,
+     - French Revolution,
+     - Roman Empire
+
+- **Rich Character Selection**: Over 100 unique roles
 - **Action-Focused Gameplay**: Every action has immediate, logical consequences
 - **Local AI Processing**: Uses Ollama for private, offline AI generation
-- **Beautiful Terminal UI**: Built with Rich for immersive text-based experience
+- **Simple and minimalistic Terminal UI**: Built with Rich for immersive text-based experience
 - **Save & Export**: Save your progress and export adventures as text files
 - **Model Compatibility**: Works with any Ollama model (Llama 3.1, Mistral, etc.)
 
