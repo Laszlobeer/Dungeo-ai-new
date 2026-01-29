@@ -7,6 +7,7 @@ An interactive text-based adventure game powered by local LLMs through Ollama. I
 [![Powered by Ollama](https://img.shields.io/badge/Powered%20by-Ollama-orange)](https://ollama.com/)
 [![MIT License](https://img.shields.io/badge/License-MIT-yellow)](https://opensource.org/licenses/MIT)
 [![Privacy Friendly](https://img.shields.io/badge/Privacy-Friendly-brightgreen)](#)
+[![Hugging Face](https://img.shields.io/badge/Model-Hugging%20Face-yellow)](https://huggingface.co/)
 
 ## ✨ Features
 
@@ -204,8 +205,8 @@ llm-adventure-game/
 ## 🔮 Future Plans
 
 - [ ] Sound effects and music
-- [ ] Additional genres (Mystery, Horror, Steampunk)
-
+- [ ] 
+- [ ] Additional Setting (Steampunk, WW3 ecc...)
 
 ## 📄 License
 
