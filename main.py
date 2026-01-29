@@ -36,6 +36,7 @@ console = Console()
 
 CONFIG = {
     "OLLAMA_URL": "http://127.0.0.1:11434",
+    "ALLTALK_TTS_URL": "http://127.0.0.1:7851",  # Default AllTalk TTS URL
     "REQUEST_TIMEOUT": 120,
     "MAX_HISTORY_TOKENS": 3500,
     "MAX_HISTORY_TURNS": 10,
@@ -259,6 +260,8 @@ class GameState:
     genre: str
     role: str
     history: List[Dict[str, str]]
+    use_tts: bool = False
+    tts_voice: Optional[str] = None
     start_time: Optional[datetime] = None
     
     def __post_init__(self):
@@ -295,6 +298,111 @@ class GameState:
             **asdict(self),
             "start_time": self.start_time.isoformat() if self.start_time else None
         }
+
+class AllTalkTTS:
+    """Handler for AllTalk TTS v2"""
+    
+    @staticmethod
+    def check_tts_available() -> bool:
+        """Check if AllTalk TTS is available"""
+        try:
+            url = f'{CONFIG["ALLTALK_TTS_URL"].rstrip("/")}/api/ready'
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status == 200
+        except:
+            return False
+    
+    @staticmethod
+    def list_voices() -> List[str]:
+        """Get list of available voices from AllTalk TTS"""
+        try:
+            url = f'{CONFIG["ALLTALK_TTS_URL"].rstrip("/")}/api/voices'
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                response_data = resp.read().decode("utf-8")
+                data = json.loads(response_data)
+                
+                # Handle different response formats
+                if isinstance(data, list):
+                    return data
+                elif isinstance(data, dict) and "voices" in data:
+                    return data["voices"]
+                elif isinstance(data, dict) and "cloned_voices" in data:
+                    # Combine cloned and preloaded voices
+                    voices = data.get("cloned_voices", [])
+                    if "preloaded_voices" in data:
+                        voices.extend(data["preloaded_voices"])
+                    return voices
+                else:
+                    console.print("[yellow]Warning: Could not parse voices list[/yellow]")
+                    return ["default"]
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not fetch voices: {e}[/yellow]")
+            return ["default"]
+    
+    @staticmethod
+    def speak_text(text: str, voice: str, url: Optional[str] = None) -> bool:
+        """
+        Speak text using AllTalk TTS
+        
+        Args:
+            text: Text to speak
+            voice: Voice to use
+            url: Optional custom TTS URL
+            
+        Returns:
+            bool: Success status
+        """
+        tts_url = url or CONFIG["ALLTALK_TTS_URL"]
+        
+        # Clean up text for TTS
+        # Remove markdown and special formatting
+        tts_text = re.sub(r'[*_`#]', '', text)
+        tts_text = re.sub(r'\[.*?\]\(.*?\)', '', tts_text)  # Remove markdown links
+        tts_text = re.sub(r'\n+', '. ', tts_text)  # Replace newlines with periods
+        tts_text = tts_text.strip()
+        
+        if not tts_text:
+            return False
+        
+        try:
+            endpoint = f'{tts_url.rstrip("/")}/api/tts'
+            
+            payload = {
+                "text": tts_text,
+                "voice": voice,
+                "language": "en",
+                "speed": 1.0,
+                "stream": True
+            }
+            
+            data = json.dumps(payload).encode('utf-8')
+            
+            req = urllib.request.Request(
+                endpoint,
+                data=data,
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            
+            # Start TTS in a separate thread to avoid blocking
+            def _speak_thread():
+                try:
+                    with urllib.request.urlopen(req, timeout=CONFIG["REQUEST_TIMEOUT"]) as response:
+                        # We don't need to read the response, just trigger the TTS
+                        pass
+                except Exception as e:
+                    console.print(f"[dim]TTS Error: {e}[/dim]")
+            
+            thread = threading.Thread(target=_speak_thread, daemon=True)
+            thread.start()
+            
+            return True
+            
+        except Exception as e:
+            console.print(f"[dim]TTS Error: {e}[/dim]")
+            return False
 
 class OllamaAPI:
     """Wrapper for Ollama API with better error handling"""
@@ -587,6 +695,9 @@ class AdventureUI:
             ("/history", "Show recent history"),
             ("/stats", "Show game statistics"),
             ("/redo", "Redo the last action with new response"),
+            ("/tts_on", "Enable TTS for world responses"),
+            ("/tts_off", "Disable TTS"),
+            ("/tts_voice", "Change TTS voice"),
             ("/help", "Show this help")
         ]
         
@@ -628,11 +739,15 @@ class AdventureUI:
     @staticmethod
     def show_game_info(state: GameState):
         """Display current game information"""
+        tts_status = "ON" if state.use_tts else "OFF"
+        tts_voice_info = f" ({state.tts_voice})" if state.use_tts and state.tts_voice else ""
+        
         info_panel = Panel(
             f"[bold]Genre:[/bold] {state.genre}\n"
             f"[bold]Role:[/bold] {state.role}\n"
             f"[bold]Player:[/bold] {state.player_name}\n"
             f"[bold]Model:[/bold] {state.model}\n"
+            f"[bold]TTS:[/bold] {tts_status}{tts_voice_info}\n"
             f"[bold]Duration:[/bold] {state.get_session_duration()}\n"
             f"[bold]Actions:[/bold] {state.get_message_count() // 2}",
             title="Game Info",
@@ -641,10 +756,15 @@ class AdventureUI:
         console.print(info_panel)
     
     @staticmethod
-    def show_world_response(text: str):
+    def show_world_response(text: str, use_tts: bool = False, tts_voice: Optional[str] = None):
         """Display world response with nice formatting"""
         console.print(f"\n[bold cyan]━━━ World Response ━━━[/bold cyan]")
         console.print(Markdown(text))
+        
+        # Speak the text if TTS is enabled
+        if use_tts and tts_voice:
+            AllTalkTTS.speak_text(text, tts_voice)
+        
         console.print()
     
     @staticmethod
@@ -711,6 +831,9 @@ class AdventureExporter:
                 f.write(f"Role: {state.role}\n")
                 f.write(f"Genre: {state.genre}\n")
                 f.write(f"Model: {state.model}\n")
+                f.write(f"TTS Enabled: {state.use_tts}\n")
+                if state.tts_voice:
+                    f.write(f"TTS Voice: {state.tts_voice}\n")
                 if state.start_time:
                     f.write(f"Started: {state.start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                     f.write(f"Session Duration: {state.get_session_duration()}\n")
@@ -776,6 +899,76 @@ class GameManager:
         self.ui = AdventureUI()
         self.exporter = AdventureExporter()
         self.analyzer = ActionAnalyzer()
+        self.tts_available = False
+    
+    def setup_tts(self) -> Tuple[bool, Optional[str]]:
+        """Setup TTS, returns (use_tts, tts_voice)"""
+        console.print("\n[bold cyan]━━━ TTS Setup ━━━[/bold cyan]")
+        
+        # Check if AllTalk TTS is available
+        with console.status("[cyan]Checking for AllTalk TTS...[/cyan]", spinner="dots"):
+            self.tts_available = AllTalkTTS.check_tts_available()
+        
+        if not self.tts_available:
+            console.print("[yellow]AllTalk TTS not found or not running.[/yellow]")
+            console.print("[dim]Make sure AllTalk TTS v2 is running at:[/dim]")
+            console.print(f"[dim]{CONFIG['ALLTALK_TTS_URL']}[/dim]")
+            
+            # Ask if user wants to enter custom URL
+            if Confirm.ask("[cyan]Do you want to enter a custom TTS URL?[/cyan]", default=False):
+                custom_url = Prompt.ask("[cyan]Enter TTS URL[/cyan]", default=CONFIG["ALLTALK_TTS_URL"])
+                CONFIG["ALLTALK_TTS_URL"] = custom_url
+                
+                with console.status("[cyan]Checking custom TTS URL...[/cyan]", spinner="dots"):
+                    self.tts_available = AllTalkTTS.check_tts_available()
+        
+        if not self.tts_available:
+            console.print("[yellow]TTS will not be available for this session.[/yellow]")
+            return False, None
+        
+        console.print("[green]✓ AllTalk TTS v2 is available[/green]")
+        
+        # Ask if user wants to use TTS
+        use_tts = Confirm.ask("[cyan]Do you want to enable text-to-speech for world responses?[/cyan]", default=True)
+        
+        if not use_tts:
+            return False, None
+        
+        # List available voices
+        with console.status("[cyan]Loading available voices...[/cyan]", spinner="dots"):
+            voices = AllTalkTTS.list_voices()
+        
+        if not voices:
+            console.print("[yellow]No voices found. Using default voice.[/yellow]")
+            return True, "default"
+        
+        # Let user choose a voice
+        if len(voices) == 1:
+            console.print(f"[cyan]Only one voice available: {voices[0]}[/cyan]")
+            return True, voices[0]
+        
+        console.print(f"[cyan]Found {len(voices)} voices[/cyan]")
+        voice = self.ui.choose_option("Select TTS Voice", voices)
+        
+        return True, voice
+    
+    def change_tts_voice(self):
+        """Change the current TTS voice"""
+        if not self.tts_available:
+            self.ui.show_error("TTS is not available")
+            return
+        
+        with console.status("[cyan]Loading available voices...[/cyan]", spinner="dots"):
+            voices = AllTalkTTS.list_voices()
+        
+        if not voices:
+            self.ui.show_error("No voices found")
+            return
+        
+        voice = self.ui.choose_option("Select TTS Voice", voices)
+        if self.state:
+            self.state.tts_voice = voice
+            self.ui.show_success(f"TTS voice changed to: {voice}")
     
     def setup_game(self) -> bool:
         """Setup new game, returns True if setup successful"""
@@ -807,6 +1000,9 @@ class GameManager:
         # Model selection
         model = self.ui.choose_option("Select Model", models)
         
+        # TTS setup
+        use_tts, tts_voice = self.setup_tts()
+        
         # Character setup
         console.print("\n[bold cyan]━━━ Character Creation ━━━[/bold cyan]")
         player_name = Prompt.ask("[cyan]Character name[/cyan]", default="Adventurer")
@@ -833,7 +1029,9 @@ class GameManager:
             player_name=player_name,
             genre=genre,
             role=role,
-            history=[]
+            history=[],
+            use_tts=use_tts,
+            tts_voice=tts_voice
         )
         
         return True
@@ -939,6 +1137,30 @@ class GameManager:
         elif cmd == "/redo":
             return self.redo_last_action()
         
+        elif cmd == "/tts_on":
+            if not self.tts_available:
+                self.ui.show_error("TTS is not available. Make sure AllTalk TTS is running.")
+            elif self.state:
+                self.state.use_tts = True
+                self.ui.show_success("TTS enabled for world responses")
+            else:
+                self.ui.show_error("No game in progress")
+        
+        elif cmd == "/tts_off":
+            if self.state:
+                self.state.use_tts = False
+                self.ui.show_success("TTS disabled")
+            else:
+                self.ui.show_error("No game in progress")
+        
+        elif cmd == "/tts_voice":
+            if not self.tts_available:
+                self.ui.show_error("TTS is not available")
+            elif self.state:
+                self.change_tts_voice()
+            else:
+                self.ui.show_error("No game in progress")
+        
         else:
             console.print(f"[yellow]Unknown command: {command}[/yellow]")
             console.print("Type /help for available commands")
@@ -994,7 +1216,7 @@ class GameManager:
         self.state.add_message("assistant", response)
         
         # Show the new response
-        self.ui.show_world_response(response)
+        self.ui.show_world_response(response, self.state.use_tts, self.state.tts_voice)
         
         return True
     
@@ -1032,6 +1254,8 @@ class GameManager:
         stats_panel = Panel(
             f"[bold]Session Duration:[/bold] {self.state.get_session_duration()}\n"
             f"[bold]Model:[/bold] {self.state.model}\n"
+            f"[bold]TTS:[/bold] {'ON' if self.state.use_tts else 'OFF'}\n"
+            f"[bold]TTS Voice:[/bold] {self.state.tts_voice or 'N/A'}\n"
             f"[bold]Total Actions:[/bold] {action_count}\n"
             f"[bold]Messages in History:[/bold] {self.state.get_message_count()}\n"
             f"[bold]Genre:[/bold] {self.state.genre}\n"
@@ -1119,12 +1343,22 @@ class GameManager:
             if not all(k in data for k in required):
                 raise ValueError("Invalid save file format")
             
+            # Check TTS availability if it was enabled
+            if data.get("use_tts", False):
+                with console.status("[cyan]Checking TTS...[/cyan]", spinner="dots"):
+                    self.tts_available = AllTalkTTS.check_tts_available()
+                if not self.tts_available:
+                    console.print("[yellow]TTS was enabled in save but is not currently available[/yellow]")
+                    data["use_tts"] = False
+            
             self.state = GameState(
                 model=data["model"],
                 player_name=data["player_name"],
                 genre=data["genre"],
                 role=data["role"],
                 history=data["history"],
+                use_tts=data.get("use_tts", False),
+                tts_voice=data.get("tts_voice"),
                 start_time=datetime.fromisoformat(data["start_time"]) if data.get("start_time") else None
             )
             
@@ -1230,7 +1464,7 @@ class GameManager:
                 
                 # Add response to history and display
                 self.state.add_message("assistant", response)
-                self.ui.show_world_response(response)
+                self.ui.show_world_response(response, self.state.use_tts, self.state.tts_voice)
                 
                 # Auto-save every 5 actions
                 action_count = self.state.get_message_count() // 2
