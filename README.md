@@ -2,11 +2,12 @@
   ![prewe](v.png)
 An interactive text-based adventure game powered by local LLMs through Ollama. Immerse yourself in dynamically generated stories across multiple genres and time periods, with a focus on action-driven, immediate consequences.
 
-![Adventure Game](https://img.shields.io/badge/Game-Adventure-blue)
-![Python](https://img.shields.io/badge/Python-3.8+-green)
-![Ollama](https://img.shields.io/badge/Powered%20by-Ollama-orange)
-![MIT-License](https://img.shields.io/badge/License-MIT-yellow)
-![Privacy](https://img.shields.io/badge/Privacy-Friendly-brightgreen)
+[![Adventure Game](https://img.shields.io/badge/Game-Adventure-blue)](#)
+[![Python](https://img.shields.io/badge/Python-3.8+-green)](https://www.python.org/)
+[![Powered by Ollama](https://img.shields.io/badge/Powered%20by-Ollama-orange)](https://ollama.com/)
+[![MIT License](https://img.shields.io/badge/License-MIT-yellow)](https://opensource.org/licenses/MIT)
+[![Privacy Friendly](https://img.shields.io/badge/Privacy-Friendly-brightgreen)](#)
+
 ## ✨ Features
 
 - **Multiple Genres**: Choose from 10 different settings:
