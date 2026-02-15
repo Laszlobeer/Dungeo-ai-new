@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 import json
 import sys
 import urllib.request
@@ -15,7 +14,6 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 import time
 from pathlib import Path
-
 # Rich imports for UI
 from rich.console import Console
 from rich.panel import Panel
@@ -44,7 +42,7 @@ CONFIG = {
     "EXPORT_DIR": "adventure_exports",
 }
 
-STOP_TOKENS = ["\n\n", "Player:", "Dungeon Master:", "System:", "\n---"]
+STOP_TOKENS = ["\n", "Player:", "Dungeon Master:", "System:", "\n---"]
 
 ROLE_STARTERS = {
     "Fantasy": {
@@ -216,7 +214,6 @@ GENRE_DESCRIPTIONS = {
 
 DM_SYSTEM_PROMPT = """
 You are a responsive Dungeon Master who narrates IMMEDIATE CONSEQUENCES based on the player's EXACT action.
-
 STRICT RULES:
 1. ACTION-RESPONSE CHAIN: Your response MUST be a direct, logical consequence of the player's SPECIFIC action.
 2. SHORT & FOCUSED: 2-4 sentences maximum. Every sentence must relate to the player's action.
@@ -226,30 +223,33 @@ STRICT RULES:
 6. PHYSICAL LAWS: Respect physics, magic systems, and genre rules.
 7. CAUSE & EFFECT: Show clear cause-effect relationships.
 8. IMMEDIATE TIMEFRAME: Describe what happens RIGHT AFTER the action.
+9. NO PASSIVE VOICE: Use active voice to emphasize player agency ("The door splinters" not "The door is splintered").
+10. CONSEQUENCE-FIRST: Start with the direct result of the action before describing reactions.
 
 RESPONSE TEMPLATE:
-1. Direct result of the action
-2. Immediate reaction from the environment/characters
-3. New situation created by the action
-4. Clear next step or choice (implied, not stated)
+1. Direct physical result of the action (e.g., "Your sword strikes the orc's shoulder")
+2. Immediate environmental reaction (e.g., "Blood sprays across the stone floor")
+3. Character/NPC reaction (e.g., "The orc roars in pain and staggers back")
+4. New tactical situation (e.g., "Its guard is broken, leaving its chest exposed")
 
-BAD EXAMPLE (Vague):
+BAD EXAMPLE (Vague/Passive):
 "You try to open the door. Something happens in the distance."
 
-GOOD EXAMPLE (Specific):
+GOOD EXAMPLE (Specific/Active):
 "Your shoulder slams into the wooden door with a loud crack. The door splinters but holds, rattling in its frame. From inside, you hear frantic shuffling and a muffled curse. The door is now visibly weakened but still barred."
 
-Always analyze the player's action word-by-word and respond accordingly.
+Always analyze the player's action word-by-word and respond accordingly with immediate, logical consequences.
 """
 
 ACTION_ANALYSIS_PROMPT = """
 ANALYZE THE PLAYER'S ACTION CAREFULLY:
-- What exactly did they say they're doing?
-- What would realistically happen immediately?
-- How does the world/react to this specific action?
-- What are the direct physical/consequences?
+- What exactly did they say they're doing? (verbs, objects, targets)
+- What would realistically happen IMMEDIATELY after this action?
+- How does the world/react to this SPECIFIC action? (not generic reactions)
+- What are the direct physical/logical consequences?
+- Does this action succeed, fail, or partially succeed based on context?
 
-RESPOND ONLY with narrative consequences. No commentary.
+RESPOND ONLY with narrative consequences. No commentary, no questions, no setup.
 """
 
 @dataclass
@@ -322,7 +322,6 @@ class AllTalkTTS:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 response_data = resp.read().decode("utf-8")
                 data = json.loads(response_data)
-                
                 # Handle different response formats
                 if isinstance(data, list):
                     return data
@@ -345,17 +344,14 @@ class AllTalkTTS:
     def speak_text(text: str, voice: str, url: Optional[str] = None) -> bool:
         """
         Speak text using AllTalk TTS
-        
         Args:
             text: Text to speak
             voice: Voice to use
             url: Optional custom TTS URL
-            
         Returns:
             bool: Success status
         """
         tts_url = url or CONFIG["ALLTALK_TTS_URL"]
-        
         # Clean up text for TTS
         # Remove markdown and special formatting
         tts_text = re.sub(r'[*_`#]', '', text)
@@ -368,7 +364,6 @@ class AllTalkTTS:
         
         try:
             endpoint = f'{tts_url.rstrip("/")}/api/tts'
-            
             payload = {
                 "text": tts_text,
                 "voice": voice,
@@ -376,9 +371,7 @@ class AllTalkTTS:
                 "speed": 1.0,
                 "stream": True
             }
-            
             data = json.dumps(payload).encode('utf-8')
-            
             req = urllib.request.Request(
                 endpoint,
                 data=data,
@@ -397,9 +390,7 @@ class AllTalkTTS:
             
             thread = threading.Thread(target=_speak_thread, daemon=True)
             thread.start()
-            
             return True
-            
         except Exception as e:
             console.print(f"[dim]TTS Error: {e}[/dim]")
             return False
@@ -441,7 +432,6 @@ class OllamaAPI:
     def list_models(cls) -> List[str]:
         """Get list of available models with fallback methods"""
         models = []
-        
         # Method 1: API endpoint
         try:
             data = cls.http_request(f'{CONFIG["OLLAMA_URL"].rstrip("/")}/api/tags')
@@ -489,7 +479,6 @@ class OllamaAPI:
     def generate(cls, model: str, prompt: str) -> str:
         """Generate text with streaming feedback"""
         url = f'{CONFIG["OLLAMA_URL"].rstrip("/")}/api/generate'
-        
         payload = {
             "model": model,
             "prompt": prompt,
@@ -536,7 +525,6 @@ class OllamaAPI:
             "Without warning, ",
             "Out of nowhere, ",
         ]
-        
         for phrase in filler_phrases:
             if response.lower().startswith(phrase.lower()):
                 response = response[len(phrase):].capitalize()
@@ -551,7 +539,15 @@ class OllamaAPI:
         response = response.replace(" can be heard ", " sounds ")
         response = response.replace(" is felt ", " feels ")
         
-        return response
+        # Ensure consequence-first structure
+        if response.lower().startswith(("you ", "i ")):
+            # Try to rephrase to start with action consequence
+            words = response.split()
+            if len(words) > 3 and words[2].lower() in ["see", "notice", "feel", "hear"]:
+                # Skip "You see/notice/feel/hear" constructions
+                response = ' '.join(words[3:]).capitalize()
+        
+        return response.strip()
 
 class ActionAnalyzer:
     """Analyzes player actions to improve AI responses"""
@@ -567,18 +563,20 @@ class ActionAnalyzer:
         targets = []
         
         # Common action verbs
-        action_verbs = ["attack", "cast", "use", "open", "close", "take", "grab", "throw", 
-                       "run", "walk", "jump", "climb", "hide", "search", "look", "listen",
-                       "talk", "ask", "tell", "persuade", "intimidate", "steal", "pick",
-                       "lock", "unlock", "break", "destroy", "build", "create", "write",
-                       "read", "study", "meditate", "pray", "summon", "banish", "heal",
-                       "cure", "poison", "drink", "eat", "cook", "forge", "craft"]
+        action_verbs = ["attack", "cast", "use", "open", "close", "take", "grab", "throw",
+                        "run", "walk", "jump", "climb", "hide", "search", "look", "listen",
+                        "talk", "ask", "tell", "persuade", "intimidate", "steal", "pick",
+                        "lock", "unlock", "break", "destroy", "build", "create", "write",
+                        "read", "study", "meditate", "pray", "summon", "banish", "heal",
+                        "cure", "poison", "drink", "eat", "cook", "forge", "craft", "dodge",
+                        "parry", "block", "defend", "charge", "sneak", "creep", "crawl"]
         
         # Common objects
         common_objects = ["sword", "shield", "door", "window", "chest", "book", "scroll",
-                         "potion", "key", "lock", "trap", "monster", "enemy", "ally",
-                         "npc", "character", "item", "weapon", "armor", "tool", "food",
-                         "gold", "coin", "gem", "artifact", "relic", "altar", "shrine"]
+                          "potion", "key", "lock", "trap", "monster", "enemy", "ally",
+                          "npc", "character", "item", "weapon", "armor", "tool", "food",
+                          "gold", "coin", "gem", "artifact", "relic", "altar", "shrine",
+                          "wall", "floor", "ceiling", "ground", "tree", "rock", "bush"]
         
         # Extract verbs
         for verb in action_verbs:
@@ -592,37 +590,47 @@ class ActionAnalyzer:
         
         # Determine action type
         action_type = "other"
-        if any(v in action_lower for v in ["attack", "fight", "kill", "stab", "shoot", "hit"]):
+        if any(v in action_lower for v in ["attack", "fight", "kill", "stab", "shoot", "hit", "punch", "kick", "slash"]):
             action_type = "combat"
-        elif any(v in action_lower for v in ["cast", "spell", "magic", "enchant", "summon"]):
+        elif any(v in action_lower for v in ["cast", "spell", "magic", "enchant", "summon", "banish", "curse", "bless"]):
             action_type = "magic"
-        elif any(v in action_lower for v in ["talk", "speak", "ask", "tell", "persuade"]):
+        elif any(v in action_lower for v in ["talk", "speak", "ask", "tell", "persuade", "intimidate", "charm", "deceive"]):
             action_type = "social"
-        elif any(v in action_lower for v in ["search", "look", "examine", "investigate"]):
+        elif any(v in action_lower for v in ["search", "look", "examine", "investigate", "inspect", "scan"]):
             action_type = "investigation"
-        elif any(v in action_lower for v in ["open", "close", "lock", "unlock"]):
+        elif any(v in action_lower for v in ["open", "close", "lock", "unlock", "pick"]):
             action_type = "manipulation"
-        elif any(v in action_lower for v in ["run", "walk", "jump", "climb", "hide"]):
+        elif any(v in action_lower for v in ["run", "walk", "jump", "climb", "hide", "sneak", "creep", "crawl", "dodge"]):
             action_type = "movement"
+        elif any(v in action_lower for v in ["drink", "eat", "consume", "ingest"]):
+            action_type = "consumption"
         
         # Determine intensity
         intensity = "medium"
         intense_words = ["violently", "forcefully", "powerfully", "fiercely", "aggressively",
-                        "carefully", "cautiously", "gently", "quietly", "stealthily"]
-        
+                         "carefully", "cautiously", "gently", "quietly", "stealthily",
+                         "desperately", "frantically", "calmly", "slowly", "quickly"]
         for word in intense_words:
             if word in action_lower:
-                if word in ["violently", "forcefully", "powerfully", "fiercely", "aggressively"]:
+                if word in ["violently", "forcefully", "powerfully", "fiercely", "aggressively", "desperately", "frantically"]:
                     intensity = "high"
                 else:
                     intensity = "low"
                 break
+        
+        # Determine success likelihood based on context
+        success_likelihood = "possible"
+        if any(w in action_lower for w in ["carefully", "expertly", "skillfully", "precisely"]):
+            success_likelihood = "likely"
+        elif any(w in action_lower for w in ["haphazardly", "clumsily", "recklessly", "randomly"]):
+            success_likelihood = "unlikely"
         
         return {
             "verbs": verbs,
             "objects": objects,
             "type": action_type,
             "intensity": intensity,
+            "success_likelihood": success_likelihood,
             "raw_action": action
         }
     
@@ -634,33 +642,46 @@ class ActionAnalyzer:
         # Add genre-specific context
         if genre == "Fantasy":
             if analysis["type"] == "magic":
-                context.append("Magic exists and follows consistent rules.")
+                context.append("Magic exists and follows consistent rules. Spell effects are immediate and visible.")
             elif analysis["type"] == "combat":
-                context.append("Combat involves medieval weapons and armor.")
-        
+                context.append("Combat involves medieval weapons and armor. Physics apply realistically.")
         elif genre == "Sci-Fi":
             if analysis["type"] == "combat":
-                context.append("Combat involves energy weapons and advanced technology.")
-        
+                context.append("Combat involves energy weapons and advanced technology. Shields may absorb damage.")
+            context.append("Technology is advanced but can malfunction under stress.")
         elif genre == "Cyberpunk":
-            context.append("Technology is advanced but often glitchy. Corporations have immense power.")
+            context.append("Technology is advanced but often glitchy. Corporations have immense power. Cyberware can fail catastrophically.")
+        elif genre == "Post-Apocalyptic":
+            context.append("Resources are scarce. Equipment is often damaged or makeshift. Every action has survival consequences.")
         
         # Add role-specific context
-        if role in ["Mage", "Wizard", "Sorcerer"] and analysis["type"] == "magic":
-            context.append(f"As a {role}, your magical abilities are specialized.")
-        elif role in ["Knight", "Warrior", "Soldier"] and analysis["type"] == "combat":
-            context.append(f"As a {role}, you are trained in combat.")
-        elif role in ["Thief", "Rogue", "Assassin"]:
-            context.append(f"As a {role}, you are skilled in stealth and subtlety.")
+        if role in ["Mage", "Wizard", "Sorcerer", "Warlock"] and analysis["type"] == "magic":
+            context.append(f"As a {role}, your magical abilities are specialized but require concentration.")
+        elif role in ["Knight", "Warrior", "Soldier", "Gladiator"] and analysis["type"] == "combat":
+            context.append(f"As a {role}, you are trained in combat and can perform complex maneuvers.")
+        elif role in ["Thief", "Rogue", "Assassin", "Scout"]:
+            context.append(f"As a {role}, you are skilled in stealth and subtlety. Your actions are precise and quiet.")
+        elif role in ["Bard", "Diplomat", "Merchant"]:
+            context.append(f"As a {role}, your words carry weight and can influence others significantly.")
         
         # Add action-specific context
         if analysis["intensity"] == "high":
-            context.append("The action is performed with great force or intensity.")
+            context.append("The action is performed with great force or intensity. Consequences will be dramatic.")
         elif analysis["intensity"] == "low":
-            context.append("The action is performed carefully or subtly.")
+            context.append("The action is performed carefully or subtly. Consequences will be nuanced.")
         
         if analysis["type"] == "social":
-            context.append("Social interactions can influence NPC attitudes and relationships.")
+            context.append("Social interactions can influence NPC attitudes and relationships. Success depends on approach.")
+        elif analysis["type"] == "combat":
+            context.append("Combat actions have immediate physical consequences. Success depends on skill and circumstance.")
+        elif analysis["type"] == "magic":
+            context.append("Magic has tangible effects but may drain energy or attract unwanted attention.")
+        
+        # Add success likelihood context
+        if analysis["success_likelihood"] == "likely":
+            context.append("This action has a high chance of success given your approach.")
+        elif analysis["success_likelihood"] == "unlikely":
+            context.append("This action has a low chance of success given your haphazard approach.")
         
         return " ".join(context) if context else ""
 
@@ -670,9 +691,8 @@ class AdventureUI:
     @staticmethod
     def show_title():
         """Display title screen"""
-        title = Text("🎭 LLM Adventure Game 🎭", style="bold magenta")
+        title = Text("🧙 LLM Adventure Game 🗡️", style="bold magenta")
         subtitle = Text("Powered by Ollama", style="dim italic")
-        
         console.print(Panel(
             title + "\n" + subtitle,
             border_style="cyan",
@@ -694,7 +714,7 @@ class AdventureUI:
             ("/export_txt", "Export adventure as text file"),
             ("/history", "Show recent history"),
             ("/stats", "Show game statistics"),
-            ("/redo", "Redo the last action with new response"),
+            ("/redo", "🔄 Redo last action with NEW consequences"),
             ("/tts_on", "Enable TTS for world responses"),
             ("/tts_off", "Disable TTS"),
             ("/tts_voice", "Change TTS voice"),
@@ -705,6 +725,7 @@ class AdventureUI:
             commands_table.add_row(cmd, desc)
         
         console.print(commands_table)
+        console.print("\n[dim]💡 Pro Tip: Be SPECIFIC with actions! 'I carefully pick the lock with my dagger' works better than 'open door'[/dim]\n")
     
     @staticmethod
     def choose_option(title: str, options: List[str], description: str = "") -> str:
@@ -758,7 +779,7 @@ class AdventureUI:
     @staticmethod
     def show_world_response(text: str, use_tts: bool = False, tts_voice: Optional[str] = None):
         """Display world response with nice formatting"""
-        console.print(f"\n[bold cyan]━━━ World Response ━━━[/bold cyan]")
+        console.print(f"\n[bold cyan]🌍 World Response 🌍[/bold cyan]")
         console.print(Markdown(text))
         
         # Speak the text if TTS is enabled
@@ -775,18 +796,19 @@ class AdventureUI:
     @staticmethod
     def show_success(message: str):
         """Display success message"""
-        console.print(f"[bold green]✓ {message}[/bold green]")
+        console.print(f"[bold green]✅ {message}[/bold green]")
     
     @staticmethod
     def show_info(message: str):
         """Display info message"""
-        console.print(f"[cyan]ℹ {message}[/cyan]")
+        console.print(f"[cyan]ℹ️ {message}[/cyan]")
     
     @staticmethod
     def show_action_analysis(analysis: Dict[str, Any]):
         """Display action analysis (for debugging)"""
         if analysis["verbs"] or analysis["objects"]:
-            console.print(f"[dim]Action analysis: {analysis['type']} action ({analysis['intensity']} intensity)[/dim]")
+            intensity_icon = "⚡" if analysis["intensity"] == "high" else "🐢" if analysis["intensity"] == "low" else "➡️"
+            console.print(f"[dim]{intensity_icon} Action: {analysis['type']} ({analysis['intensity']} intensity) | Verbs: {', '.join(analysis['verbs'][:3]) or 'none'}[/dim]")
 
 class AdventureExporter:
     """Handles exporting adventures to various formats"""
@@ -801,7 +823,6 @@ class AdventureExporter:
     def export_to_txt(state: GameState, filename: Optional[str] = None) -> str:
         """
         Export adventure to a readable text file
-        
         Returns: Path to the exported file
         """
         AdventureExporter.ensure_directories()
@@ -822,7 +843,7 @@ class AdventureExporter:
                 # Write header
                 f.write("=" * 80 + "\n")
                 f.write("ADVENTURE LOG\n")
-                f.write("=" * 80 + "\n\n")
+                f.write("=" * 80 + "\n")
                 
                 # Metadata
                 f.write("METADATA\n")
@@ -836,7 +857,7 @@ class AdventureExporter:
                     f.write(f"TTS Voice: {state.tts_voice}\n")
                 if state.start_time:
                     f.write(f"Started: {state.start_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    f.write(f"Session Duration: {state.get_session_duration()}\n")
+                f.write(f"Session Duration: {state.get_session_duration()}\n")
                 f.write(f"Total Actions: {state.get_message_count() // 2}\n")
                 f.write("\n")
                 
@@ -849,7 +870,7 @@ class AdventureExporter:
                 
                 # Adventure history
                 f.write("ADVENTURE HISTORY\n")
-                f.write("-" * 40 + "\n\n")
+                f.write("-" * 40 + "\n")
                 
                 # Group messages by action
                 action_number = 1
@@ -858,7 +879,6 @@ class AdventureExporter:
                     # Look for player message
                     if i < len(state.history) and state.history[i]["role"] == "user":
                         player_msg = state.history[i]
-                        
                         # Look for corresponding DM response
                         dm_response = ""
                         if i + 1 < len(state.history) and state.history[i + 1]["role"] == "assistant":
@@ -868,26 +888,23 @@ class AdventureExporter:
                             i += 1
                         
                         # Write action
-                        f.write(f"ACTION {action_number}\n")
+                        f.write(f"\nACTION #{action_number}\n")
                         f.write("~" * 40 + "\n")
-                        f.write(f"[PLAYER]\n{player_msg['content']}\n\n")
+                        f.write(f"[PLAYER]  {player_msg['content']}\n")
                         if dm_response:
-                            f.write(f"[WORLD]\n{dm_response}\n\n")
-                        f.write("\n")
-                        
+                            f.write(f"[WORLD]   {dm_response}\n")
                         action_number += 1
                     else:
                         # Skip any non-user messages
                         i += 1
                 
                 # Footer
-                f.write("=" * 80 + "\n")
+                f.write("\n" + "=" * 80 + "\n")
                 f.write(f"End of adventure log\n")
                 f.write(f"Exported: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("=" * 80 + "\n")
             
             return str(filepath)
-            
         except Exception as e:
             raise RuntimeError(f"Failed to export adventure: {e}")
 
@@ -903,7 +920,7 @@ class GameManager:
     
     def setup_tts(self) -> Tuple[bool, Optional[str]]:
         """Setup TTS, returns (use_tts, tts_voice)"""
-        console.print("\n[bold cyan]━━━ TTS Setup ━━━[/bold cyan]")
+        console.print("\n[bold cyan]🔊 TTS Setup 🔊[/bold cyan]")
         
         # Check if AllTalk TTS is available
         with console.status("[cyan]Checking for AllTalk TTS...[/cyan]", spinner="dots"):
@@ -918,19 +935,17 @@ class GameManager:
             if Confirm.ask("[cyan]Do you want to enter a custom TTS URL?[/cyan]", default=False):
                 custom_url = Prompt.ask("[cyan]Enter TTS URL[/cyan]", default=CONFIG["ALLTALK_TTS_URL"])
                 CONFIG["ALLTALK_TTS_URL"] = custom_url
-                
                 with console.status("[cyan]Checking custom TTS URL...[/cyan]", spinner="dots"):
                     self.tts_available = AllTalkTTS.check_tts_available()
+            
+            if not self.tts_available:
+                console.print("[yellow]TTS will not be available for this session.[/yellow]")
+                return False, None
         
-        if not self.tts_available:
-            console.print("[yellow]TTS will not be available for this session.[/yellow]")
-            return False, None
-        
-        console.print("[green]✓ AllTalk TTS v2 is available[/green]")
+        console.print("[green]✅ AllTalk TTS v2 is available[/green]")
         
         # Ask if user wants to use TTS
         use_tts = Confirm.ask("[cyan]Do you want to enable text-to-speech for world responses?[/cyan]", default=True)
-        
         if not use_tts:
             return False, None
         
@@ -949,26 +964,7 @@ class GameManager:
         
         console.print(f"[cyan]Found {len(voices)} voices[/cyan]")
         voice = self.ui.choose_option("Select TTS Voice", voices)
-        
         return True, voice
-    
-    def change_tts_voice(self):
-        """Change the current TTS voice"""
-        if not self.tts_available:
-            self.ui.show_error("TTS is not available")
-            return
-        
-        with console.status("[cyan]Loading available voices...[/cyan]", spinner="dots"):
-            voices = AllTalkTTS.list_voices()
-        
-        if not voices:
-            self.ui.show_error("No voices found")
-            return
-        
-        voice = self.ui.choose_option("Select TTS Voice", voices)
-        if self.state:
-            self.state.tts_voice = voice
-            self.ui.show_success(f"TTS voice changed to: {voice}")
     
     def setup_game(self) -> bool:
         """Setup new game, returns True if setup successful"""
@@ -983,14 +979,11 @@ class GameManager:
             ) as progress:
                 task = progress.add_task("Checking Ollama...", total=None)
                 models = OllamaAPI.list_models()
-            
-            if not models:
-                self.ui.show_error("No Ollama models found. Please pull a model first:")
-                console.print("  [cyan]ollama pull llama3.1[/cyan]")
-                return False
-            
-            console.print(f"[green]✓ Found {len(models)} models[/green]")
-            
+                if not models:
+                    self.ui.show_error("No Ollama models found. Please pull a model first:")
+                    console.print("  [cyan]ollama pull llama3.1[/cyan]")
+                    return False
+                console.print(f"[green]✅ Found {len(models)} models[/green]")
         except RuntimeError as e:
             self.ui.show_error(str(e))
             console.print("\n[yellow]Make sure Ollama is running:[/yellow]")
@@ -1004,7 +997,7 @@ class GameManager:
         use_tts, tts_voice = self.setup_tts()
         
         # Character setup
-        console.print("\n[bold cyan]━━━ Character Creation ━━━[/bold cyan]")
+        console.print("\n[bold cyan]🎭 Character Creation 🎭[/bold cyan]")
         player_name = Prompt.ask("[cyan]Character name[/cyan]", default="Adventurer")
         
         # Genre selection
@@ -1015,7 +1008,6 @@ class GameManager:
         roles = list(ROLE_STARTERS[genre].keys())
         roles.append("Custom Role")
         role = self.ui.choose_option(f"Select Role for {genre}", roles)
-        
         if role == "Custom Role":
             role = Prompt.ask("[cyan]Enter custom role[/cyan]", default="Adventurer")
         
@@ -1050,13 +1042,14 @@ class GameManager:
         
         # Start with system prompt
         system_context = (
-            DM_SYSTEM_PROMPT.strip() + "\n\n" +
-            ACTION_ANALYSIS_PROMPT.strip() + "\n\n" +
+            DM_SYSTEM_PROMPT.strip() + "\n" +
+            ACTION_ANALYSIS_PROMPT.strip() + "\n" +
             f"CONTEXT:\n" +
             f"- Genre: {self.state.genre}\n" +
             f"- Character: {self.state.player_name} as {self.state.role}\n" +
             f"- Action Type: {action_analysis['type'].upper()}\n" +
-            f"- Action Intensity: {action_analysis['intensity'].upper()}\n"
+            f"- Action Intensity: {action_analysis['intensity'].upper()}\n" +
+            f"- Success Likelihood: {action_analysis['success_likelihood'].upper()}\n"
         )
         
         if action_context:
@@ -1069,22 +1062,22 @@ class GameManager:
             system_context += f"- Key Objects: {', '.join(action_analysis['objects'])}\n"
         
         system_context += "\nRESPONSE REQUIREMENTS:\n"
-        system_context += "1. EVERY sentence must directly relate to the player's specific action\n"
-        system_context += "2. Show physical/logical consequences\n"
-        system_context += "3. No unrelated events or characters\n"
-        system_context += "4. 2-4 sentences maximum\n"
-        system_context += "5. Focus on IMMEDIATE results\n"
+        system_context += "1. EVERY sentence must directly relate to the player's SPECIFIC action\n"
+        system_context += "2. Show PHYSICAL/LOGICAL consequences (not just 'you try')\n"
+        system_context += "3. NO unrelated events or characters appearing out of nowhere\n"
+        system_context += "4. 2-4 sentences MAXIMUM\n"
+        system_context += "5. START with the direct consequence of the action\n"
+        system_context += "6. Use ACTIVE voice to emphasize player agency\n"
         
         # Check if this is the first action
         if len(self.state.history) == 0:
-            opener = ROLE_STARTERS.get(self.state.genre, {}).get(self.state.role, 
+            opener = ROLE_STARTERS.get(self.state.genre, {}).get(self.state.role,
                 "The atmosphere hangs with possibility when")
             system_context += f"\nSCENE START: {opener}...\n"
         
         # Build history (last 3-4 actions for context)
         history_text = ""
         recent_history = self.state.history[-8:]  # Keep last 4 actions (player + DM pairs)
-        
         for msg in recent_history:
             if msg["role"] == "user":
                 history_text += f"PREVIOUS ACTION: {msg['content']}\n"
@@ -1095,11 +1088,11 @@ class GameManager:
         current_action = f"CURRENT ACTION: {user_action}\n"
         
         # Combine everything
-        full_prompt = f"SYSTEM INSTRUCTIONS:\n{system_context}\n\n"
+        full_prompt = f"SYSTEM INSTRUCTIONS:\n{system_context}\n"
         if history_text:
             full_prompt += f"RECENT HISTORY:\n{history_text}\n"
         full_prompt += f"\n{current_action}\n"
-        full_prompt += "NARRATE IMMEDIATE CONSEQUENCES (2-4 sentences):\n"
+        full_prompt += "NARRATE IMMEDIATE CONSEQUENCES (2-4 sentences, consequence-first):\n"
         
         return full_prompt
     
@@ -1110,33 +1103,24 @@ class GameManager:
         if cmd in ("/quit", "/exit", "quit", "exit"):
             console.print("\n[bold green]Thanks for playing![/bold green]")
             return False
-        
         elif cmd == "/restart":
             if Confirm.ask("[yellow]Restart game?[/yellow]"):
                 console.print("\n[cyan]Starting new game...[/cyan]\n")
                 return self.run()
-        
         elif cmd == "/help":
             self.ui.show_commands()
-        
         elif cmd == "/history":
             self.show_history()
-        
         elif cmd == "/stats":
             self.show_stats()
-        
         elif cmd == "/save":
             self.save_game()
-        
         elif cmd == "/load":
             self.load_game()
-        
         elif cmd == "/export_txt":
             self.export_adventure()
-        
         elif cmd == "/redo":
             return self.redo_last_action()
-        
         elif cmd == "/tts_on":
             if not self.tts_available:
                 self.ui.show_error("TTS is not available. Make sure AllTalk TTS is running.")
@@ -1145,14 +1129,12 @@ class GameManager:
                 self.ui.show_success("TTS enabled for world responses")
             else:
                 self.ui.show_error("No game in progress")
-        
         elif cmd == "/tts_off":
             if self.state:
                 self.state.use_tts = False
                 self.ui.show_success("TTS disabled")
             else:
                 self.ui.show_error("No game in progress")
-        
         elif cmd == "/tts_voice":
             if not self.tts_available:
                 self.ui.show_error("TTS is not available")
@@ -1160,7 +1142,6 @@ class GameManager:
                 self.change_tts_voice()
             else:
                 self.ui.show_error("No game in progress")
-        
         else:
             console.print(f"[yellow]Unknown command: {command}[/yellow]")
             console.print("Type /help for available commands")
@@ -1168,7 +1149,7 @@ class GameManager:
         return True
     
     def redo_last_action(self) -> bool:
-        """Redo the last action with a new response"""
+        """Redo the last action with a new response - core feature for exploring narrative branches"""
         if not self.state:
             console.print("[yellow]No game in progress[/yellow]")
             return True
@@ -1178,44 +1159,49 @@ class GameManager:
             console.print("[yellow]Nothing to redo yet[/yellow]")
             return True
         
-        # Get the last player action
+        # Get the last player action (must be a user message)
         last_player_action = None
-        for msg in reversed(self.state.history):
-            if msg["role"] == "user":
-                last_player_action = msg["content"]
+        last_response_index = None
+        
+        # Walk backwards to find the last user action followed by assistant response
+        for i in range(len(self.state.history) - 1, 0, -1):
+            if (self.state.history[i]["role"] == "assistant" and 
+                self.state.history[i-1]["role"] == "user"):
+                last_player_action = self.state.history[i-1]["content"]
+                last_response_index = i
                 break
         
         if not last_player_action:
-            console.print("[yellow]No previous action found to redo[/yellow]")
+            console.print("[yellow]No previous action-response pair found to redo[/yellow]")
             return True
         
         # Show the action being redone
-        console.print(f"[cyan]Redoing last action:[/cyan] {last_player_action}")
+        console.print(f"\n[cyan]🔄 Redoing last action:[/cyan] [bold]{last_player_action}[/bold]")
         
-        # Remove the last response
+        # Remove the last response (and any subsequent messages if they exist)
         removed_count = 0
-        for _ in range(min(2, len(self.state.history))):
-            if self.state.history[-1]["role"] == "assistant":
-                self.state.history.pop()
-                removed_count += 1
-            else:
-                break
+        while self.state.history and self.state.history[-1]["role"] == "assistant":
+            self.state.history.pop()
+            removed_count += 1
+            # Only remove one response (the immediate one after player action)
+            break
         
         if removed_count == 0:
             console.print("[yellow]No previous response to redo[/yellow]")
             return True
         
-        console.print("[cyan]Generating new response...[/cyan]")
+        console.print("[cyan]Generating new narrative consequences...[/cyan]")
         
-        # Generate new response
-        with console.status("[bold cyan]The world reacts differently...[/bold cyan]", spinner="dots"):
+        # Generate new response with fresh randomness
+        with console.status("[bold cyan]The world reacts differently to your action...[/bold cyan]", spinner="dots"):
             prompt = self.build_prompt(last_player_action)
             response = OllamaAPI.generate(self.state.model, prompt)
         
         # Add the new response to history
         self.state.add_message("assistant", response)
         
-        # Show the new response
+        # Show the new response with special redo indicator
+        console.print("\n[bold magenta]🔄 NEW CONSEQUENCES 🔄[/bold magenta]")
         self.ui.show_world_response(response, self.state.use_tts, self.state.tts_voice)
         
         return True
@@ -1227,18 +1213,17 @@ class GameManager:
             return
         
         history_table = Table(title="Recent History", show_header=True)
-        history_table.add_column("#", style="cyan")
-        history_table.add_column("Role", style="green")
+        history_table.add_column("#", style="cyan", no_wrap=True)
+        history_table.add_column("Role", style="green", no_wrap=True)
         history_table.add_column("Content", style="white")
         
         # Show last 10 messages with simple numbering
         for i, msg in enumerate(self.state.history[-10:], 1):
-            role_display = "Player" if msg["role"] == "user" else "World"
+            role_display = "👤 Player" if msg["role"] == "user" else "🌍 World"
             # Truncate long content
             content = msg["content"]
             if len(content) > 80:
                 content = content[:77] + "..."
-            
             history_table.add_row(str(i), role_display, content)
         
         console.print(history_table)
@@ -1250,14 +1235,24 @@ class GameManager:
             return
         
         action_count = self.state.get_message_count() // 2
+        unique_verbs = set()
+        unique_objects = set()
+        
+        # Analyze history for action diversity
+        for msg in self.state.history:
+            if msg["role"] == "user":
+                analysis = self.analyzer.analyze_action(msg["content"], self.state.genre, self.state.role)
+                unique_verbs.update(analysis["verbs"])
+                unique_objects.update(analysis["objects"])
         
         stats_panel = Panel(
             f"[bold]Session Duration:[/bold] {self.state.get_session_duration()}\n"
             f"[bold]Model:[/bold] {self.state.model}\n"
-            f"[bold]TTS:[/bold] {'ON' if self.state.use_tts else 'OFF'}\n"
+            f"[bold]TTS:[/bold] {'✅ ON' if self.state.use_tts else '❌ OFF'}\n"
             f"[bold]TTS Voice:[/bold] {self.state.tts_voice or 'N/A'}\n"
             f"[bold]Total Actions:[/bold] {action_count}\n"
-            f"[bold]Messages in History:[/bold] {self.state.get_message_count()}\n"
+            f"[bold]Unique Verbs Used:[/bold] {len(unique_verbs) or '0'}\n"
+            f"[bold]Unique Objects Interacted:[/bold] {len(unique_objects) or '0'}\n"
             f"[bold]Genre:[/bold] {self.state.genre}\n"
             f"[bold]Role:[/bold] {self.state.role}",
             title="Game Statistics",
@@ -1272,7 +1267,6 @@ class GameManager:
             return
         
         AdventureExporter.ensure_directories()
-        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_name = "".join(c for c in self.state.player_name if c.isalnum() or c in (' ', '-', '_'))
         default_filename = f"{safe_name}_{timestamp}.json"
@@ -1281,7 +1275,6 @@ class GameManager:
             "[cyan]Save filename[/cyan]",
             default=default_filename
         )
-        
         if not filename.endswith('.json'):
             filename += '.json'
         
@@ -1290,9 +1283,7 @@ class GameManager:
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(self.state.to_dict(), f, indent=2, ensure_ascii=False)
-            
             self.ui.show_success(f"Game saved to {filepath}")
-            
         except Exception as e:
             self.ui.show_error(f"Error saving game: {e}")
     
@@ -1320,7 +1311,6 @@ class GameManager:
                 f"[cyan]Select save (1-{len(saves)}) or 0 to enter filename[/cyan]",
                 show_default=False
             )
-            
             if choice == 0:
                 filename = Prompt.ask("[cyan]Enter filename[/cyan]")
             else:
@@ -1361,10 +1351,8 @@ class GameManager:
                 tts_voice=data.get("tts_voice"),
                 start_time=datetime.fromisoformat(data["start_time"]) if data.get("start_time") else None
             )
-            
             self.ui.show_success(f"Game loaded from {filepath}")
             self.ui.show_game_info(self.state)
-            
         except FileNotFoundError:
             self.ui.show_error(f"File not found: {filepath}")
         except Exception as e:
@@ -1385,51 +1373,63 @@ class GameManager:
             "[cyan]Filename[/cyan]",
             default=default_base
         )
-        
         if not base_filename.endswith('.txt'):
             base_filename += '.txt'
         
         try:
             txt_file = self.exporter.export_to_txt(self.state, base_filename)
-            console.print(f"[green]✓ Adventure exported to: {txt_file}[/green]")
+            console.print(f"[green]✅ Adventure exported to: {txt_file}[/green]")
             
             # Offer to open the file
             if Confirm.ask("[cyan]Open exported file?[/cyan]", default=False):
                 try:
                     import subprocess
                     import platform
-                    
                     filepath = txt_file
                     system = platform.system()
-                    
                     if system == "Darwin":  # macOS
                         subprocess.run(["open", filepath])
                     elif system == "Windows":
                         os.startfile(filepath)
                     elif system == "Linux":
                         subprocess.run(["xdg-open", filepath])
-                        
                 except Exception as e:
                     console.print(f"[yellow]Could not open file: {e}[/yellow]")
-        
         except Exception as e:
             self.ui.show_error(f"Export failed: {e}")
     
+    def change_tts_voice(self):
+        """Change the current TTS voice"""
+        if not self.tts_available:
+            self.ui.show_error("TTS is not available")
+            return
+        
+        with console.status("[cyan]Loading available voices...[/cyan]", spinner="dots"):
+            voices = AllTalkTTS.list_voices()
+        
+        if not voices:
+            self.ui.show_error("No voices found")
+            return
+        
+        voice = self.ui.choose_option("Select TTS Voice", voices)
+        if self.state:
+            self.state.tts_voice = voice
+            self.ui.show_success(f"TTS voice changed to: {voice}")
+    
     def game_loop(self):
-        """Main game loop"""
+        """Main game loop - where story is shaped by player actions"""
         if not self.state:
             raise ValueError("Game not initialized")
         
         # Show opening scene
         opener = ROLE_STARTERS.get(self.state.genre, {}).get(self.state.role,
             "The atmosphere hangs with possibility when")
-        
         console.print(Panel(
             f"[italic]{opener}...[/italic]",
             title="The Adventure Begins",
             border_style="cyan"
         ))
-        console.print("[dim]Enter your action. Be specific! Type /help for commands.[/dim]\n")
+        console.print("[dim]Enter your action. Be SPECIFIC! Type /help for commands.[/dim]\n")
         
         # Main game loop
         while True:
@@ -1450,15 +1450,15 @@ class GameManager:
                 
                 # Validate action (not too short)
                 if len(action.split()) < 2:
-                    console.print("[yellow]Please be more specific with your action![/yellow]")
+                    console.print("[yellow]⚠️ Please be more specific with your action![/yellow]")
                     console.print("[dim]Example: 'I draw my sword and attack the orc' instead of 'attack'[/dim]")
                     continue
                 
-                # Add to history
+                # Add to history BEFORE generating response (so redo works correctly)
                 self.state.add_message("user", action)
                 
-                # Generate response
-                with console.status("[bold cyan]The world reacts to your action...[/bold cyan]", spinner="dots"):
+                # Generate response based STRICTLY on player's action
+                with console.status("[bold cyan]The world reacts to your specific action...[/bold cyan]", spinner="dots"):
                     prompt = self.build_prompt(action)
                     response = OllamaAPI.generate(self.state.model, prompt)
                 
@@ -1474,10 +1474,10 @@ class GameManager:
                         autosave_path = Path(CONFIG["SAVE_DIR"]) / f"autosave_{self.state.player_name}.json"
                         with open(autosave_path, 'w', encoding='utf-8') as f:
                             json.dump(self.state.to_dict(), f, indent=2, ensure_ascii=False)
-                        console.print(f"[dim]Auto-saved (Action {action_count})[/dim]")
+                        console.print(f"[dim]💾 Auto-saved (Action {action_count})[/dim]")
                     except:
                         pass  # Don't crash on autosave failure
-                
+            
             except KeyboardInterrupt:
                 if Confirm.ask("\n[yellow]Really quit?[/yellow]"):
                     # Offer to save before quitting
@@ -1527,9 +1527,8 @@ def main():
             if not game.run():
                 break
             console.print("\n" + "="*50 + "\n")
-    
     except KeyboardInterrupt:
-        console.print("\n\n[yellow]Game interrupted[/yellow]")
+        console.print("\n[yellow]Game interrupted[/yellow]")
     except Exception as e:
         console.print(f"\n[bold red]Fatal error:[/bold red] {e}")
         console.print_exception(show_locals=False)
