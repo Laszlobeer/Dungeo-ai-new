@@ -1036,7 +1036,7 @@ class GameManager:
                 
                 if not models:
                     self.ui.show_error("No Ollama models found. Please pull a model first:")
-                    console.print("  [cyan]ollama pull llama3.1[/cyan]")
+                    console.print("  [cyan]ollama pull HammerAI/mn-mag-mell-r1[/cyan]")
                     return False
                 
                 console.print(f"[green]✓ Found {len(models)} models[/green]")
