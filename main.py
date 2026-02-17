@@ -28,10 +28,8 @@ from rich.text import Text
 from rich.syntax import Syntax
 from rich.columns import Columns
 import threading
-
 # Initialize Rich console
 console = Console()
-
 CONFIG = {
     "OLLAMA_URL": "http://127.0.0.1:11434",
     "ALLTALK_TTS_URL": "http://127.0.0.1:7851",  # Default AllTalk TTS URL
@@ -41,9 +39,7 @@ CONFIG = {
     "SAVE_DIR": "adventure_saves",
     "EXPORT_DIR": "adventure_exports",
 }
-
 STOP_TOKENS = ["\n", "Player:", "Dungeon Master:", "System:", "\n---"]
-
 ROLE_STARTERS = {
     "Fantasy": {
         "Peasant": "You're working in the fields of a small village when",
@@ -198,7 +194,6 @@ ROLE_STARTERS = {
         "Politician": "You're giving a fiery speech at the National Assembly when"
     }
 }
-
 GENRE_DESCRIPTIONS = {
     "Fantasy": "You are in a world of magic and medieval fantasy, where dragons soar through skies and ancient ruins hold forgotten treasures. The air is thick with possibility, and every shadow could hide friend or foe.",
     "Sci-Fi": "You are in the distant future, with advanced technology that blurs the line between human and machine. Starships traverse wormholes, alien civilizations await discovery, and artificial intelligences ponder their existence.",
@@ -211,7 +206,6 @@ GENRE_DESCRIPTIONS = {
     "Roman Empire": "You are in ancient Rome at the height of its power, where emperors command legions and senators plot in marble halls. The city is a tapestry of decadence and ambition.",
     "French Revolution": "You are in France during the revolution, where the streets run red with the blood of aristocrats and the air smells of smoke and rebellion. Liberty, equality, and fraternity are the new gods."
 }
-
 DM_SYSTEM_PROMPT = """
 You are a responsive Dungeon Master who narrates IMMEDIATE CONSEQUENCES based on the player's EXACT action.
 STRICT RULES:
@@ -225,22 +219,17 @@ STRICT RULES:
 8. IMMEDIATE TIMEFRAME: Describe what happens RIGHT AFTER the action.
 9. NO PASSIVE VOICE: Use active voice to emphasize player agency ("The door splinters" not "The door is splintered").
 10. CONSEQUENCE-FIRST: Start with the direct result of the action before describing reactions.
-
 RESPONSE TEMPLATE:
 1. Direct physical result of the action (e.g., "Your sword strikes the orc's shoulder")
 2. Immediate environmental reaction (e.g., "Blood sprays across the stone floor")
 3. Character/NPC reaction (e.g., "The orc roars in pain and staggers back")
 4. New tactical situation (e.g., "Its guard is broken, leaving its chest exposed")
-
 BAD EXAMPLE (Vague/Passive):
 "You try to open the door. Something happens in the distance."
-
 GOOD EXAMPLE (Specific/Active):
 "Your shoulder slams into the wooden door with a loud crack. The door splinters but holds, rattling in its frame. From inside, you hear frantic shuffling and a muffled curse. The door is now visibly weakened but still barred."
-
 Always analyze the player's action word-by-word and respond accordingly with immediate, logical consequences.
 """
-
 ACTION_ANALYSIS_PROMPT = """
 ANALYZE THE PLAYER'S ACTION CAREFULLY:
 - What exactly did they say they're doing? (verbs, objects, targets)
@@ -248,10 +237,8 @@ ANALYZE THE PLAYER'S ACTION CAREFULLY:
 - How does the world/react to this SPECIFIC action? (not generic reactions)
 - What are the direct physical/logical consequences?
 - Does this action succeed, fail, or partially succeed based on context?
-
 RESPOND ONLY with narrative consequences. No commentary, no questions, no setup.
 """
-
 @dataclass
 class GameState:
     """Game state management"""
@@ -299,6 +286,7 @@ class GameState:
             "start_time": self.start_time.isoformat() if self.start_time else None
         }
 
+
 class AllTalkTTS:
     """Handler for AllTalk TTS v2"""
     
@@ -306,10 +294,25 @@ class AllTalkTTS:
     def check_tts_available() -> bool:
         """Check if AllTalk TTS is available"""
         try:
-            url = f'{CONFIG["ALLTALK_TTS_URL"].rstrip("/")}/api/ready'
-            req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                return resp.status == 200
+            # Try multiple endpoint variations
+            endpoints = [
+                '/api/ready',
+                '/ready',
+                '/api/status',
+                '/status'
+            ]
+            base_url = CONFIG["ALLTALK_TTS_URL"].rstrip("/")
+            
+            for endpoint in endpoints:
+                try:
+                    url = f'{base_url}{endpoint}'
+                    req = urllib.request.Request(url, method="GET")
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        if resp.status == 200:
+                            return True
+                except:
+                    continue
+            return False
         except:
             return False
     
@@ -317,25 +320,39 @@ class AllTalkTTS:
     def list_voices() -> List[str]:
         """Get list of available voices from AllTalk TTS"""
         try:
-            url = f'{CONFIG["ALLTALK_TTS_URL"].rstrip("/")}/api/voices'
-            req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                response_data = resp.read().decode("utf-8")
-                data = json.loads(response_data)
-                # Handle different response formats
-                if isinstance(data, list):
-                    return data
-                elif isinstance(data, dict) and "voices" in data:
-                    return data["voices"]
-                elif isinstance(data, dict) and "cloned_voices" in data:
-                    # Combine cloned and preloaded voices
-                    voices = data.get("cloned_voices", [])
-                    if "preloaded_voices" in data:
-                        voices.extend(data["preloaded_voices"])
-                    return voices
-                else:
-                    console.print("[yellow]Warning: Could not parse voices list[/yellow]")
-                    return ["default"]
+            base_url = CONFIG["ALLTALK_TTS_URL"].rstrip("/")
+            endpoints = [
+                '/api/voices',
+                '/voices',
+                '/api/voice',
+                '/voice'
+            ]
+            
+            for endpoint in endpoints:
+                try:
+                    url = f'{base_url}{endpoint}'
+                    req = urllib.request.Request(url, method="GET")
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        response_data = resp.read().decode("utf-8")
+                        data = json.loads(response_data)
+                        # Handle different response formats
+                        if isinstance(data, list):
+                            return data
+                        elif isinstance(data, dict) and "voices" in data:
+                            return data["voices"]
+                        elif isinstance(data, dict) and "cloned_voices" in data:
+                            # Combine cloned and preloaded voices
+                            voices = data.get("cloned_voices", [])
+                            if "preloaded_voices" in data:
+                                voices.extend(data["preloaded_voices"])
+                            return voices
+                        elif isinstance(data, dict) and "available_voices" in data:
+                            return data["available_voices"]
+                except:
+                    continue
+            
+            console.print("[yellow]Warning: Could not parse voices list[/yellow]")
+            return ["default"]
         except Exception as e:
             console.print(f"[yellow]Warning: Could not fetch voices: {e}[/yellow]")
             return ["default"]
@@ -352,8 +369,9 @@ class AllTalkTTS:
             bool: Success status
         """
         tts_url = url or CONFIG["ALLTALK_TTS_URL"]
+        base_url = tts_url.rstrip("/")
+        
         # Clean up text for TTS
-        # Remove markdown and special formatting
         tts_text = re.sub(r'[*_`#]', '', text)
         tts_text = re.sub(r'\[.*?\]\(.*?\)', '', tts_text)  # Remove markdown links
         tts_text = re.sub(r'\n+', '. ', tts_text)  # Replace newlines with periods
@@ -362,38 +380,66 @@ class AllTalkTTS:
         if not tts_text:
             return False
         
-        try:
-            endpoint = f'{tts_url.rstrip("/")}/api/tts'
-            payload = {
-                "text": tts_text,
-                "voice": voice,
-                "language": "en",
-                "speed": 1.0,
-                "stream": True
-            }
-            data = json.dumps(payload).encode('utf-8')
-            req = urllib.request.Request(
-                endpoint,
-                data=data,
-                headers={'Content-Type': 'application/json'},
-                method='POST'
-            )
-            
-            # Start TTS in a separate thread to avoid blocking
-            def _speak_thread():
-                try:
-                    with urllib.request.urlopen(req, timeout=CONFIG["REQUEST_TIMEOUT"]) as response:
-                        # We don't need to read the response, just trigger the TTS
-                        pass
-                except Exception as e:
-                    console.print(f"[dim]TTS Error: {e}[/dim]")
-            
-            thread = threading.Thread(target=_speak_thread, daemon=True)
-            thread.start()
-            return True
-        except Exception as e:
-            console.print(f"[dim]TTS Error: {e}[/dim]")
-            return False
+        # Try multiple endpoint variations for AllTalk v2
+        endpoints_to_try = [
+            ('/api/tts-generate', 'POST', True),
+            ('/tts-generate', 'POST', True),
+            ('/api/tts', 'POST', True),
+            ('/tts', 'POST', True),
+            ('/api/voice', 'POST', False),
+            ('/voice', 'POST', False),
+        ]
+        
+        for endpoint, method, is_json in endpoints_to_try:
+            try:
+                full_url = f'{base_url}{endpoint}'
+                
+                if is_json:
+                    payload = {
+                        "text": tts_text,
+                        "voice": voice,
+                        "language": "en",
+                        "speed": 1.0,
+                        "stream": False
+                    }
+                    data = json.dumps(payload).encode('utf-8')
+                    req = urllib.request.Request(
+                        full_url,
+                        data=data,
+                        headers={'Content-Type': 'application/json'},
+                        method=method
+                    )
+                else:
+                    # Form data approach
+                    payload = f"text={urllib.parse.quote(tts_text)}&voice={urllib.parse.quote(voice)}".encode('utf-8')
+                    req = urllib.request.Request(
+                        full_url,
+                        data=payload,
+                        headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                        method=method
+                    )
+                
+                def _speak_thread():
+                    try:
+                        with urllib.request.urlopen(req, timeout=CONFIG["REQUEST_TIMEOUT"]) as response:
+                            # Successfully triggered TTS
+                            console.print("[dim]✓ TTS audio generated[/dim]")
+                    except urllib.error.HTTPError as e:
+                        console.print(f"[dim]TTS HTTP Error {e.code}: {e.reason}[/dim]")
+                    except Exception as e:
+                        console.print(f"[dim]TTS Error: {e}[/dim]")
+                
+                thread = threading.Thread(target=_speak_thread, daemon=True)
+                thread.start()
+                return True
+                
+            except Exception as e:
+                # Try next endpoint
+                continue
+        
+        console.print(f"[dim]TTS Error: All endpoints failed[/dim]")
+        return False
+
 
 class OllamaAPI:
     """Wrapper for Ollama API with better error handling"""
@@ -432,6 +478,7 @@ class OllamaAPI:
     def list_models(cls) -> List[str]:
         """Get list of available models with fallback methods"""
         models = []
+        
         # Method 1: API endpoint
         try:
             data = cls.http_request(f'{CONFIG["OLLAMA_URL"].rstrip("/")}/api/tags')
@@ -525,6 +572,7 @@ class OllamaAPI:
             "Without warning, ",
             "Out of nowhere, ",
         ]
+        
         for phrase in filler_phrases:
             if response.lower().startswith(phrase.lower()):
                 response = response[len(phrase):].capitalize()
@@ -549,6 +597,7 @@ class OllamaAPI:
         
         return response.strip()
 
+
 class ActionAnalyzer:
     """Analyzes player actions to improve AI responses"""
     
@@ -564,19 +613,19 @@ class ActionAnalyzer:
         
         # Common action verbs
         action_verbs = ["attack", "cast", "use", "open", "close", "take", "grab", "throw",
-                        "run", "walk", "jump", "climb", "hide", "search", "look", "listen",
-                        "talk", "ask", "tell", "persuade", "intimidate", "steal", "pick",
-                        "lock", "unlock", "break", "destroy", "build", "create", "write",
-                        "read", "study", "meditate", "pray", "summon", "banish", "heal",
-                        "cure", "poison", "drink", "eat", "cook", "forge", "craft", "dodge",
-                        "parry", "block", "defend", "charge", "sneak", "creep", "crawl"]
+                       "run", "walk", "jump", "climb", "hide", "search", "look", "listen",
+                       "talk", "ask", "tell", "persuade", "intimidate", "steal", "pick",
+                       "lock", "unlock", "break", "destroy", "build", "create", "write",
+                       "read", "study", "meditate", "pray", "summon", "banish", "heal",
+                       "cure", "poison", "drink", "eat", "cook", "forge", "craft", "dodge",
+                       "parry", "block", "defend", "charge", "sneak", "creep", "crawl"]
         
         # Common objects
         common_objects = ["sword", "shield", "door", "window", "chest", "book", "scroll",
-                          "potion", "key", "lock", "trap", "monster", "enemy", "ally",
-                          "npc", "character", "item", "weapon", "armor", "tool", "food",
-                          "gold", "coin", "gem", "artifact", "relic", "altar", "shrine",
-                          "wall", "floor", "ceiling", "ground", "tree", "rock", "bush"]
+                         "potion", "key", "lock", "trap", "monster", "enemy", "ally",
+                         "npc", "character", "item", "weapon", "armor", "tool", "food",
+                         "gold", "coin", "gem", "artifact", "relic", "altar", "shrine",
+                         "wall", "floor", "ceiling", "ground", "tree", "rock", "bush"]
         
         # Extract verbs
         for verb in action_verbs:
@@ -608,8 +657,9 @@ class ActionAnalyzer:
         # Determine intensity
         intensity = "medium"
         intense_words = ["violently", "forcefully", "powerfully", "fiercely", "aggressively",
-                         "carefully", "cautiously", "gently", "quietly", "stealthily",
-                         "desperately", "frantically", "calmly", "slowly", "quickly"]
+                        "carefully", "cautiously", "gently", "quietly", "stealthily",
+                        "desperately", "frantically", "calmly", "slowly", "quickly"]
+        
         for word in intense_words:
             if word in action_lower:
                 if word in ["violently", "forcefully", "powerfully", "fiercely", "aggressively", "desperately", "frantically"]:
@@ -685,13 +735,14 @@ class ActionAnalyzer:
         
         return " ".join(context) if context else ""
 
+
 class AdventureUI:
     """User Interface handler using Rich"""
     
     @staticmethod
     def show_title():
         """Display title screen"""
-        title = Text("🧙 LLM Adventure Game 🗡️", style="bold magenta")
+        title = Text("🎲 LLM Adventure Game 🗡️", style="bold magenta")
         subtitle = Text("Powered by Ollama", style="dim italic")
         console.print(Panel(
             title + "\n" + subtitle,
@@ -736,8 +787,6 @@ class AdventureUI:
         
         for idx, option in enumerate(options, 1):
             table.add_row(str(idx), option)
-        
-        console.print(table)
         
         while True:
             try:
@@ -796,19 +845,20 @@ class AdventureUI:
     @staticmethod
     def show_success(message: str):
         """Display success message"""
-        console.print(f"[bold green]✅ {message}[/bold green]")
+        console.print(f"[bold green]✓ {message}[/bold green]")
     
     @staticmethod
     def show_info(message: str):
         """Display info message"""
-        console.print(f"[cyan]ℹ️ {message}[/cyan]")
+        console.print(f"[cyan]ℹ️  {message}[/cyan]")
     
     @staticmethod
     def show_action_analysis(analysis: Dict[str, Any]):
         """Display action analysis (for debugging)"""
         if analysis["verbs"] or analysis["objects"]:
-            intensity_icon = "⚡" if analysis["intensity"] == "high" else "🐢" if analysis["intensity"] == "low" else "➡️"
+            intensity_icon = "⚡" if analysis["intensity"] == "high" else "🔹" if analysis["intensity"] == "low" else "⚡️"
             console.print(f"[dim]{intensity_icon} Action: {analysis['type']} ({analysis['intensity']} intensity) | Verbs: {', '.join(analysis['verbs'][:3]) or 'none'}[/dim]")
+
 
 class AdventureExporter:
     """Handles exporting adventures to various formats"""
@@ -866,7 +916,7 @@ class AdventureExporter:
                     "The atmosphere hangs with possibility when")
                 f.write("OPENING SCENE\n")
                 f.write("-" * 40 + "\n")
-                f.write(f"{opener}...\n\n")
+                f.write(f"{opener}...\n")
                 
                 # Adventure history
                 f.write("ADVENTURE HISTORY\n")
@@ -908,6 +958,7 @@ class AdventureExporter:
         except Exception as e:
             raise RuntimeError(f"Failed to export adventure: {e}")
 
+
 class GameManager:
     """Main game manager"""
     
@@ -935,17 +986,19 @@ class GameManager:
             if Confirm.ask("[cyan]Do you want to enter a custom TTS URL?[/cyan]", default=False):
                 custom_url = Prompt.ask("[cyan]Enter TTS URL[/cyan]", default=CONFIG["ALLTALK_TTS_URL"])
                 CONFIG["ALLTALK_TTS_URL"] = custom_url
+                
                 with console.status("[cyan]Checking custom TTS URL...[/cyan]", spinner="dots"):
                     self.tts_available = AllTalkTTS.check_tts_available()
+                
+                if not self.tts_available:
+                    console.print("[yellow]TTS will not be available for this session.[/yellow]")
+                    return False, None
             
-            if not self.tts_available:
-                console.print("[yellow]TTS will not be available for this session.[/yellow]")
-                return False, None
-        
-        console.print("[green]✅ AllTalk TTS v2 is available[/green]")
+            console.print("[green]✓ AllTalk TTS v2 is available[/green]")
         
         # Ask if user wants to use TTS
         use_tts = Confirm.ask("[cyan]Do you want to enable text-to-speech for world responses?[/cyan]", default=True)
+        
         if not use_tts:
             return False, None
         
@@ -964,6 +1017,7 @@ class GameManager:
         
         console.print(f"[cyan]Found {len(voices)} voices[/cyan]")
         voice = self.ui.choose_option("Select TTS Voice", voices)
+        
         return True, voice
     
     def setup_game(self) -> bool:
@@ -979,11 +1033,13 @@ class GameManager:
             ) as progress:
                 task = progress.add_task("Checking Ollama...", total=None)
                 models = OllamaAPI.list_models()
+                
                 if not models:
                     self.ui.show_error("No Ollama models found. Please pull a model first:")
                     console.print("  [cyan]ollama pull llama3.1[/cyan]")
                     return False
-                console.print(f"[green]✅ Found {len(models)} models[/green]")
+                
+                console.print(f"[green]✓ Found {len(models)} models[/green]")
         except RuntimeError as e:
             self.ui.show_error(str(e))
             console.print("\n[yellow]Make sure Ollama is running:[/yellow]")
@@ -997,7 +1053,7 @@ class GameManager:
         use_tts, tts_voice = self.setup_tts()
         
         # Character setup
-        console.print("\n[bold cyan]🎭 Character Creation 🎭[/bold cyan]")
+        console.print("\n[bold cyan]🧙 Character Creation 🧙[/bold cyan]")
         player_name = Prompt.ask("[cyan]Character name[/cyan]", default="Adventurer")
         
         # Genre selection
@@ -1008,6 +1064,7 @@ class GameManager:
         roles = list(ROLE_STARTERS[genre].keys())
         roles.append("Custom Role")
         role = self.ui.choose_option(f"Select Role for {genre}", roles)
+        
         if role == "Custom Role":
             role = Prompt.ask("[cyan]Enter custom role[/cyan]", default="Adventurer")
         
@@ -1165,7 +1222,7 @@ class GameManager:
         
         # Walk backwards to find the last user action followed by assistant response
         for i in range(len(self.state.history) - 1, 0, -1):
-            if (self.state.history[i]["role"] == "assistant" and 
+            if (self.state.history[i]["role"] == "assistant" and
                 self.state.history[i-1]["role"] == "user"):
                 last_player_action = self.state.history[i-1]["content"]
                 last_response_index = i
@@ -1219,7 +1276,7 @@ class GameManager:
         
         # Show last 10 messages with simple numbering
         for i, msg in enumerate(self.state.history[-10:], 1):
-            role_display = "👤 Player" if msg["role"] == "user" else "🌍 World"
+            role_display = "🧑 Player" if msg["role"] == "user" else "🌍 World"
             # Truncate long content
             content = msg["content"]
             if len(content) > 80:
@@ -1248,7 +1305,7 @@ class GameManager:
         stats_panel = Panel(
             f"[bold]Session Duration:[/bold] {self.state.get_session_duration()}\n"
             f"[bold]Model:[/bold] {self.state.model}\n"
-            f"[bold]TTS:[/bold] {'✅ ON' if self.state.use_tts else '❌ OFF'}\n"
+            f"[bold]TTS:[/bold] {'✓ ON' if self.state.use_tts else '✗ OFF'}\n"
             f"[bold]TTS Voice:[/bold] {self.state.tts_voice or 'N/A'}\n"
             f"[bold]Total Actions:[/bold] {action_count}\n"
             f"[bold]Unique Verbs Used:[/bold] {len(unique_verbs) or '0'}\n"
@@ -1275,6 +1332,7 @@ class GameManager:
             "[cyan]Save filename[/cyan]",
             default=default_filename
         )
+        
         if not filename.endswith('.json'):
             filename += '.json'
         
@@ -1337,9 +1395,9 @@ class GameManager:
             if data.get("use_tts", False):
                 with console.status("[cyan]Checking TTS...[/cyan]", spinner="dots"):
                     self.tts_available = AllTalkTTS.check_tts_available()
-                if not self.tts_available:
-                    console.print("[yellow]TTS was enabled in save but is not currently available[/yellow]")
-                    data["use_tts"] = False
+                    if not self.tts_available:
+                        console.print("[yellow]TTS was enabled in save but is not currently available[/yellow]")
+                        data["use_tts"] = False
             
             self.state = GameState(
                 model=data["model"],
@@ -1351,6 +1409,7 @@ class GameManager:
                 tts_voice=data.get("tts_voice"),
                 start_time=datetime.fromisoformat(data["start_time"]) if data.get("start_time") else None
             )
+            
             self.ui.show_success(f"Game loaded from {filepath}")
             self.ui.show_game_info(self.state)
         except FileNotFoundError:
@@ -1373,12 +1432,13 @@ class GameManager:
             "[cyan]Filename[/cyan]",
             default=default_base
         )
+        
         if not base_filename.endswith('.txt'):
             base_filename += '.txt'
         
         try:
             txt_file = self.exporter.export_to_txt(self.state, base_filename)
-            console.print(f"[green]✅ Adventure exported to: {txt_file}[/green]")
+            console.print(f"[green]✓ Adventure exported to: {txt_file}[/green]")
             
             # Offer to open the file
             if Confirm.ask("[cyan]Open exported file?[/cyan]", default=False):
@@ -1412,6 +1472,7 @@ class GameManager:
             return
         
         voice = self.ui.choose_option("Select TTS Voice", voices)
+        
         if self.state:
             self.state.tts_voice = voice
             self.ui.show_success(f"TTS voice changed to: {voice}")
@@ -1450,7 +1511,7 @@ class GameManager:
                 
                 # Validate action (not too short)
                 if len(action.split()) < 2:
-                    console.print("[yellow]⚠️ Please be more specific with your action![/yellow]")
+                    console.print("[yellow]⚠️  Please be more specific with your action![/yellow]")
                     console.print("[dim]Example: 'I draw my sword and attack the orc' instead of 'attack'[/dim]")
                     continue
                 
@@ -1486,7 +1547,6 @@ class GameManager:
                     break
                 console.print("\n[cyan]Resuming...[/cyan]")
                 continue
-            
             except RuntimeError as e:
                 self.ui.show_error(str(e))
                 if "model not found" in str(e).lower():
@@ -1515,6 +1575,7 @@ class GameManager:
             return True
         return False
 
+
 def main():
     """Main entry point"""
     # Create necessary directories
@@ -1534,6 +1595,7 @@ def main():
         console.print_exception(show_locals=False)
     
     console.print("\n[bold green]Thanks for playing![/bold green]")
+
 
 if __name__ == "__main__":
     main()
